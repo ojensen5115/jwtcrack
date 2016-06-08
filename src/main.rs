@@ -112,9 +112,6 @@ fn main() {
     let mut reader_lines = reader.split(b'\n');
 
     // send an initial batch of words to each worker
-    let x = reader_lines.by_ref().take(5).map(|x| x.unwrap()).collect();
-    worker_channels[0].send(x);
-
     for channel in &worker_channels {
         channel.send(
             reader_lines.by_ref()
