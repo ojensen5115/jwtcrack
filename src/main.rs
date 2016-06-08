@@ -1,5 +1,4 @@
 extern crate crypto;
-extern crate getopts;
 extern crate rustc_serialize;
 
 use crypto::hmac::Hmac;
@@ -7,8 +6,6 @@ use crypto::mac::Mac;
 use crypto::sha2::Sha256;
 
 use std::io::prelude::*;
-//use std::io::BufReader;
-//use std::fs::File;
 
 use rustc_serialize::base64::FromBase64;
 
@@ -19,36 +16,33 @@ use std::thread;
 
 use std::io;
 
+use std::env;
+
+use std::str;
+
 static NTHREADS: i32 = 4;
 static THREAD_WORK: i32 = 100;
 
 fn main() {
 
-    // set up the dictionary reader
-    /*
-    // Read dictionary from file
-    let path = "aux/rockyou_utf8.txt";
-    let file = match File::open(&path) {
-        Ok(file) => file,
-        Err(_) => panic!("couldn't open {}", path),
-    };
-    let mut reader_lines = BufReader::new(file).lines();
-    */
-    // Read dictionary from stdin
-    let input = io::stdin();
-    let reader = input.lock();
-    let mut reader_lines = reader.lines();
+    let args: Vec<_> = env::args().collect();
+    if args.len() != 2 {
+        let jwt_ex1 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzb21lIjoicGF5bG9hZCJ9.4twFt5NiznN84AWoo1d7KO1T_yoc0Z6XOpOVswacPZg";    // key is "secret"
+        let jwt_ex2 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzb21lIjoicGF5bG9hZCJ9.Fw4maeqOtL8pPwiI2_VzYBo4JQ91P1Ow3X3hNqx2wPg";    // key is " samantha1"
+        println!("Usage is:\n{} JWT < /path/to/wordlist\n", args[0]);
+        println!("Example JWTs:\n{} (key: 'secret')\n{} (key: ' samantha1')", jwt_ex1, jwt_ex2);
+        return;
+    }
+    let ref jwt = args[1];
 
-    //let jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzb21lIjoicGF5bG9hZCJ9.4twFt5NiznN84AWoo1d7KO1T_yoc0Z6XOpOVswacPZg";    // key is "secret"
-    let jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzb21lIjoicGF5bG9hZCJ9.Fw4maeqOtL8pPwiI2_VzYBo4JQ91P1Ow3X3hNqx2wPg";      // key is " samantha1"
     let (bdata, bmac) = match jwt.rfind(".") {
         Some(split) => (
-            &jwt[..split],
-            &jwt[split+1..]),
-        _ => ("", "")
+            jwt[..split].to_string(),
+            jwt[split+1..].to_string()),
+        _ => ("".to_string(), "".to_string())
     };
 
-    let shared_body_bytes = Arc::new(bdata.as_bytes());
+    let shared_body_b64   = Arc::new(bdata);
     let shared_hmac_bytes = Arc::new(bmac.from_base64().expect("HMAC is not valid b64"));
 
     let (checkin_tx, checkin_rx) = mpsc::channel();
@@ -61,37 +55,44 @@ fn main() {
         let thread_checkin_tx = checkin_tx.clone();
 
         // Channels have two endpoints: the `Sender<T>` and the `Receiver<T>`
-        let (words_tx, words_rx): (Sender<Vec<String>>, Receiver<Vec<String>>) = mpsc::channel();
+        let (candidates_tx, candidates_rx): (Sender<Vec<Vec<u8>>>, Receiver<Vec<Vec<u8>>>) = mpsc::channel();
 
         // Store the transmitter in a vector so we can send words to the thread
-        worker_channels.push(words_tx);
+        worker_channels.push(candidates_tx);
 
-        let child_body_bytes = shared_body_bytes.clone();
+        let child_body_b64   = shared_body_b64.clone();
         let child_hmac_bytes = shared_hmac_bytes.clone();
 
         // Each thread will send its id via the channel
         worker_threads.push(thread::spawn(move || {
-            let local_body_bytes = &child_body_bytes[..];
+            let local_body_bytes = &child_body_b64[..].as_bytes();
             let local_hmac_bytes = &child_hmac_bytes[..];
             loop {
-                let words = match words_rx.recv() {
+                let candidates = match candidates_rx.recv() {
                     Ok(w) => w,
                     _ => vec![]
                 };
-                // no more words?
-                if words.len() == 0 {
+                // no more candidates?
+                if candidates.len() == 0 {
                     break;
                 }
                 // process words
                 let mut done = false;
-                for word in words {
-                    let hmac_key = word.as_bytes();
+                for keybytes in candidates {
+                    let hmac_key = &keybytes[..];
                     let mut hmac = Hmac::new(Sha256::new(), hmac_key);
                     hmac.input(local_body_bytes);
                     if &*local_hmac_bytes == hmac.result().code() {
                         // announce that we found the key
-                        println!("Key found: '{}'", word);
-                        thread_checkin_tx.send(-1).unwrap();
+                        let bytes: Vec<String> = keybytes.iter().map(|b| format!("{:02X}", b)).collect();
+
+                        print!("Key found: \n{} ", bytes.join(" "));
+                        match str::from_utf8(&*keybytes) {
+                            Ok(word) => println!("('{}')", word),
+                            _ => println!("(not valid UTF-8)"),
+                        }
+
+                        thread_checkin_tx.send(-1);
                         done = true;
                         break;
                     }
@@ -100,19 +101,26 @@ fn main() {
                     break;
                 }
                 // request more candidates to try
-                thread_checkin_tx.send(id).unwrap();
+                thread_checkin_tx.send(id);
             }
         }));
     }
 
+    // Read dictionary from stdin
+    let input = io::stdin();
+    let reader = input.lock();
+    let mut reader_lines = reader.split(b'\n');
+
     // send an initial batch of words to each worker
+    let x = reader_lines.by_ref().take(5).map(|x| x.unwrap()).collect();
+    worker_channels[0].send(x);
+
     for channel in &worker_channels {
         channel.send(
             reader_lines.by_ref()
                 .take(THREAD_WORK as usize)
                 .map(|x| x.unwrap())
-                .collect())
-            .unwrap();
+                .collect());
     }
 
     // whenever we hear back from a worker, send them another batch
@@ -128,8 +136,7 @@ fn main() {
             reader_lines.by_ref()
                 .take(THREAD_WORK as usize)
                 .map(|x| x.unwrap())
-                .collect())
-            .unwrap();
+                .collect());
 
     }
 

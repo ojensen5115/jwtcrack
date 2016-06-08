@@ -4,6 +4,5 @@ version = "0.1.0"
 authors = ["Oliver Jensen <ojensen5115@gmail.com>"]
 
 [dependencies]
-getopts = "0.2"
 rust-crypto = "^0.2"
 rustc-serialize = "0.3"
