@@ -20,8 +20,8 @@ use std::env;
 
 use std::str;
 
-static NTHREADS: i32 = 4;
-static THREAD_WORK: i32 = 100;
+static NTHREADS: i32 = 8;
+static THREAD_WORK: i32 = 500;
 
 fn main() {
 
@@ -49,6 +49,7 @@ fn main() {
 
     let mut worker_channels = vec![];
     let mut worker_threads = vec![];
+    println!("Starting {} threads with work factor {}", NTHREADS, THREAD_WORK);
     for id in 0..NTHREADS {
 
         // The sender endpoint can be copied
