@@ -22,7 +22,7 @@ use std::env;
 use std::str;
 
 static NTHREADS: i32 = 8;
-static THREAD_WORK: i32 = 500;
+static THREAD_WORK: i32 = 1000;
 
 fn main() {
 
