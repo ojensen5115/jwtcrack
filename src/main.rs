@@ -1,5 +1,6 @@
 extern crate crypto;
 extern crate rustc_serialize;
+extern crate time;
 
 use crypto::hmac::Hmac;
 use crypto::mac::Mac;
@@ -87,7 +88,7 @@ fn main() {
                         // announce that we found the key
                         let bytes: Vec<String> = keybytes.iter().map(|b| format!("{:02X}", b)).collect();
 
-                        print!("Key found: \n{} ", bytes.join(" "));
+                        print!("\n\nKey found: \n{} ", bytes.join(" "));
                         match str::from_utf8(&*keybytes) {
                             Ok(word) => println!("('{}')", word),
                             _ => println!("(not valid UTF-8)"),
@@ -121,6 +122,10 @@ fn main() {
                 .collect());
     }
 
+    // Set up timing structure
+    let mut start_interval_time: u64 = 0;
+    let mut idx_interval_time: u64 = 0;
+    let mut work_interval_target: u64 = 200;
     // whenever we hear back from a worker, send them another batch
     loop {
         let finished_id = checkin_rx.recv().expect("Failed to get finished_id");
@@ -136,6 +141,27 @@ fn main() {
                 .map(|x| x.unwrap())
                 .collect());
 
+        // update timing structure
+        if idx_interval_time == work_interval_target {
+            let hashes = THREAD_WORK * work_interval_target as i32;
+            let interval_ns = time::precise_time_ns() - start_interval_time;
+
+            // we want this to run about once per second
+            let work_multiplier = 1000000000.0 / interval_ns as f64;
+            work_interval_target = (work_interval_target as f64 * work_multiplier) as u64;
+            if work_interval_target < 1 {
+                work_interval_target = 200;
+            }
+
+            // display status
+            let hps = hashes as f64 * (1000000000.0/interval_ns as f64);
+            print!("\r                  \r{} hashes per second", hps as i32);
+            io::stdout().flush().ok().expect("Could not flush stdout");
+            idx_interval_time = 0;
+            start_interval_time = time::precise_time_ns();
+        } else {
+            idx_interval_time += 1;
+        }
     }
 
 }
