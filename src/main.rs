@@ -147,14 +147,14 @@ fn main() {
             let interval_ns = time::precise_time_ns() - start_interval_time;
 
             // we want this to run about once per second
-            let work_multiplier = 1000000000.0 / interval_ns as f64;
-            work_interval_target = (work_interval_target as f64 * work_multiplier) as u64;
+            let interval_recip_s = 1000000000.0 / interval_ns as f64;
+            work_interval_target = (work_interval_target as f64 * interval_recip_s) as u64;
             if work_interval_target < 1 {
                 work_interval_target = 200;
             }
 
             // display status
-            let hps = hashes as f64 * (1000000000.0/interval_ns as f64);
+            let hps = hashes as f64 * interval_recip_s;
             print!("\r                  \r{} hashes per second", hps as i32);
             io::stdout().flush().ok().expect("Could not flush stdout");
             idx_interval_time = 0;
